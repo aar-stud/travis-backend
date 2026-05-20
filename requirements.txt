@@ -1,0 +1,8 @@
+axios
+bcryptjs
+cors
+express
+express-validator
+jsonwebtoken
+mongoose
+concurrently
