@@ -4,6 +4,7 @@ const { translateResponse } = require("../services/processors/translatorProcesso
 const { processRAGQuery } = require("../services/processors/ragProcessor");
 const QueryHistory = require("../models/QueryHistory");
 const axios = require("axios");
+const { log, error: logError } = require("../utils/logger.js");
 
 /**
  * Three query modes sent from the frontend:
@@ -39,7 +40,7 @@ const handleQuery = async (req, res) => {
         if (!query) return res.status(400).json({ error: "Query is required" });
 
         const mode = resolveMode(rawMode);
-        console.log(`[queryController] mode='${mode}' query='${query}'`);
+        log(`[queryController] mode='${mode}' query='${query}'`);
 
         let response = "";
         let category = "general";
@@ -82,7 +83,7 @@ const handleQuery = async (req, res) => {
         });
 
     } catch (error) {
-        console.error("Error processing query:", error);
+        logError("Query processing failed", error.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 };
@@ -104,7 +105,7 @@ const handleCategory = async (req, res) => {
 
         res.json({ category });
     } catch (error) {
-        console.error("Error in handleCategory:", error);
+        logError("Handle category failed", error.message);
         res.status(500).json({ error: "Internal Server Error", details: error.message });
     }
 };
@@ -129,7 +130,7 @@ const handleTranslate = async (req, res) => {
 
         res.json({ translation });
     } catch (error) {
-        console.error("Error translating response:", error);
+        logError("Response translation failed", error.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 };
@@ -142,7 +143,7 @@ const getQueryHistory = async (req, res) => {
         const history = await QueryHistory.find({ userId }).sort({ createdAt: -1 });
         res.json(history);
     } catch (error) {
-        console.error("Error fetching query history:", error);
+        logError("Fetching Query history failed", error.message);
         res.status(500).json({ error: "Internal Server Error" });
     }
 };
@@ -161,7 +162,7 @@ const handleTelugu = async (req, res) => {
         res.setHeader("Content-Type", "audio/mpeg");
         pyRes.data.pipe(res);
     } catch (err) {
-        console.error("Error generating speech:", err);
+        error("TTS failed", err.message);
         res.status(500).send("Error generating speech");
     }
 };

@@ -2,6 +2,7 @@ const User = require('../models/User');
 const { validationResult } = require('express-validator');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const { log, error: logError } = require('../utils/logger.js');
 
 // Read JWT_SECRET from environment variable (set in .env or by docker-compose)
 const JWT_SECRET = process.env.JWT_SECRET || 'dev-secret';
@@ -44,7 +45,7 @@ const signup = async (req, res) => {
         res.json({success, authToken});
 
     } catch (error) {
-        console.error(error.message);
+        logError("Signup failed", error.message);
         res.status(500).send("Some Error occured");
     }
 };
@@ -82,7 +83,7 @@ const login = async (req, res) => {
         res.json({ success, authToken });
 
     } catch(error) {
-        console.error(error.message);
+        logError("Login failed", error.message);
         res.status(500).send("Internal Server Error");
     }
 };
@@ -94,7 +95,7 @@ const getUser = async (req, res) => {
         const user = await User.findById(userId).select("-password")
         res.send(user)
     } catch (error) {
-        console.error(error.message);
+        logError("Get User failed", error.message);
         res.status(500).send("Internal Server Error");
     }
 };

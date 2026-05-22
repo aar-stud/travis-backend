@@ -1,4 +1,5 @@
 const axios = require("axios");
+const { error: logError } = require("../../utils/logger.js");
 const AI_BASE_URL = process.env.AI_BASE_URL || "http://127.0.0.1:5001";
 const RAG_API_URL = `${AI_BASE_URL}/api/rag`;
 
@@ -13,7 +14,7 @@ async function processRAGQuery(query) {
         return { response, sources, chunks_used };
     } catch (error) {
         if (error.code === "ECONNREFUSED") {
-            console.error("[ragProcessor] RAG service unreachable at", RAG_API_URL);
+            logError("RAG service unreachable", `Could not connect to RAG API at ${RAG_API_URL}`);
             return {
                 response: "The knowledge base service is currently unavailable. Please try again later or contact customer support.",
                 sources: [],
@@ -21,7 +22,7 @@ async function processRAGQuery(query) {
             };
         }
         const detail = error.response?.data?.detail || error.message;
-        console.error("[ragProcessor] RAG API error:", detail);
+        logError("RAG API error", detail);
         return {
             response: "Sorry, I could not retrieve an answer from the knowledge base right now.",
             sources: [],

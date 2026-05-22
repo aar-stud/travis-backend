@@ -1,6 +1,7 @@
 // controllers/customerController.js
 const Customer = require('../models/Customer');
 const CustomerService = require('../services/customerService');
+const { log, error: logError } = require('../utils/logger.js');
 
 class CustomerController {
   // CRUD Operations
@@ -27,7 +28,7 @@ class CustomerController {
         message: customer ? 'Customer saved successfully' : 'Customer created successfully'
       });
     } catch (err) {
-      console.error('Customer save error:', err);
+      logError("Customer save failed", err.message);
       res.status(500).json({ 
         success: false, 
         message: 'Error saving customer', 
@@ -54,6 +55,7 @@ class CustomerController {
         customer 
       });
     } catch (err) {
+      logError("Get customer failed", err.message);
       res.status(500).json({ 
         success: false, 
         message: 'Server error', 
@@ -94,6 +96,7 @@ class CustomerController {
         customer
       });
     } catch (err) {
+      logError("Add transaction failed", err.message);
       res.status(500).json({ 
         success: false, 
         message: 'Error adding transaction', 
@@ -129,6 +132,7 @@ class CustomerController {
         customers
       });
     } catch (err) {
+      logError("Get all customers failed", err.message);
       res.status(500).json({ 
         success: false, 
         message: 'Error fetching customers', 
@@ -156,7 +160,7 @@ class CustomerController {
         deletedCustomer: customer
       });
     } catch (err) {
-      console.error('Delete customer error:', err);
+      error("Delete customer failed", err.message);
       res.status(500).json({ 
         success: false, 
         message: 'Error deleting customer', 
@@ -183,7 +187,7 @@ class CustomerController {
         requiresAuth: true
       });
     } catch (error) {
-      console.error('Error in handleQuery:', error);
+      error("Handle query failed", error.message);
       res.status(500).json({ error: 'Internal server error' });
     }
   }
@@ -204,7 +208,7 @@ class CustomerController {
       
       res.json(result);
     } catch (error) {
-      console.error('Error in handleSecureQuery:', error);
+      error("Handle secure query failed", error.message);
       
       if (error.message === 'Customer not found') {
         return res.status(404).json({ error: 'Customer not found with provided account number' });
