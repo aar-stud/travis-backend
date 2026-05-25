@@ -40,7 +40,13 @@ axios.interceptors.response.use(
 // =========================================================
 
 connectToMongo();
-app.use(cors());
+app.use(cors({
+    origin: "https://mr-travis.vercel.app",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "auth-token"]
+}));
+app.options('*', cors());
 app.use(express.json());
 
 // Health check endpoint — required for Docker healthcheck
