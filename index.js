@@ -2,24 +2,16 @@ const express = require('express');
 const app = express();
 const port = 5000;
 const cors = require('cors');
-const connectToMongo = require('./db');
-const { log, error: logError, warn } = require('./utils/logger.js');
+const path = require('path');
 
-// =========================================================
-// Production log suppression
-// Prevents Railway 500 logs/sec limit from being hit.
-// Silences debug console.log; keeps console.error for real errors.
-// =========================================================
-
-// Production logging handled by logger module
-if (process.env.NODE_ENV === 'production') {
-    // Log suppression managed via logger
+// Docker injects env vars via env_file in docker-compose.yml.
+// dotenv is only used for local dev (node index.js outside Docker).
+if (process.env.NODE_ENV !== 'production') {
+    require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 }
 
-// =========================================================
-// Axios global interceptor
-// Logs only method + URL + status — never the full error object.
-// =========================================================
+const connectToMongo = require('./db');
+const { log, error: logError, warn } = require('./utils/logger.js');
 
 const axios = require('axios');
 
@@ -35,26 +27,28 @@ axios.interceptors.response.use(
     }
 );
 
-// =========================================================
-// App setup
-// =========================================================
-
 connectToMongo();
+
+const allowedOrigins = [
+    "https://mr-travis.vercel.app",
+    "http://localhost:3000",
+    "http://localhost:5173",
+    process.env.NGROK_URL,          // set in root .env
+].filter(Boolean);
+
 app.use(cors({
-    origin: "https://mr-travis.vercel.app",
-    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    origin: allowedOrigins,
+    methods: ["GET", "POST", "PUT", "DELETE"],
+    allowedHeaders: ["Content-Type", "auth-token", "ngrok-skip-browser-warning"],
     credentials: true,
-    allowedHeaders: ["Content-Type", "auth-token"]
 }));
-app.options('*', cors());
+
 app.use(express.json());
 
-// Health check endpoint — required for Docker healthcheck
 app.get('/health', (req, res) => {
     res.status(200).json({ status: 'ok' });
 });
 
-// Available Routes
 app.use('/api/auth',      require('./routes/auth'));
 app.use('/api/query',     require('./routes/query'));
 app.use('/api/customers', require('./routes/customer'));
