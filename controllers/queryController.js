@@ -5,6 +5,7 @@ const { processRAGQuery } = require("../services/processors/ragProcessor");
 const QueryHistory = require("../models/QueryHistory");
 const axios = require("axios");
 const { log, error: logError } = require("../utils/logger.js");
+const redisClient = require("../utils/redis"); // Required for caching
 
 /**
  * Three query modes sent from the frontend:
@@ -32,6 +33,8 @@ function resolveMode(raw) {
 
 // ─── Controller: main query handler ─────────────────────────────────────────
 
+const CACHE_TTL = process.env.CACHE_TTL || 3600;
+
 const handleQuery = async (req, res) => {
     try {
         const { query, mode: rawMode } = req.body;
@@ -42,43 +45,75 @@ const handleQuery = async (req, res) => {
         const mode = resolveMode(rawMode);
         log(`[queryController] mode='${mode}' query='${query}'`);
 
+        const cacheKey = `ai_response:${mode}:${query.trim().toLowerCase()}`;
+        
         let response = "";
         let category = "general";
         let ragSources = [];
+        let cachedResult = null;
 
-        if (mode === "knowledge") {
-            // ── Knowledge (RAG) mode ─────────────────────────────────────────
-            const { category: cat } = await processCategory(query);
-            category = cat || "general";
-            const ragResult = await processRAGQuery(query);
-            response   = ragResult.response;
-            ragSources = ragResult.sources || [];
-
-        } else if (mode === "neural") {
-            // ── Neural (transformer) mode ────────────────────────────────────
-            const { category: cat } = await processCategory(query);
-            category = cat || "general";
-            const result = await processQuery(query);
-            response = result.response || "Sorry, I could not generate a response.";
-
-        } else {
-            // ── Account (DB) mode — handled by customerService via /secureQuery
-            // This branch is for non-sensitive queries in account mode
-            const { category: cat } = await processCategory(query);
-            category = cat || "general";
-            const result = await processQuery(query);
-            response = result.response || "Please use a secure query with your account number for account details.";
+        // 1. Safe Cache Fetch
+        try {
+            if (redisClient.isReady) {
+                cachedResult = await redisClient.get(cacheKey);
+            }
+        } catch (cacheErr) {
+            logError("Redis GET failed", cacheErr.message);
         }
 
-        // Save to history
+        if (cachedResult) {
+            // CACHE HIT
+            const parsedCache = JSON.parse(cachedResult);
+            response = parsedCache.response;
+            category = parsedCache.category;
+            ragSources = parsedCache.ragSources || [];
+            log(`[queryController] Cache HIT for key='${cacheKey}'`);
+        } else {
+            // CACHE MISS
+            log(`[queryController] Cache MISS for key='${cacheKey}'`);
+            
+            if (mode === "knowledge") {
+                 // ── Knowledge (RAG) mode
+                const { category: cat } = await processCategory(query);
+                category = cat || "general";
+                const ragResult = await processRAGQuery(query);
+                response   = ragResult.response;
+                ragSources = ragResult.sources || [];
+            } else if (mode === "neural") {
+                // ── Neural (transformer) mode
+                const { category: cat } = await processCategory(query);
+                category = cat || "general";
+                const result = await processQuery(query);
+                response = result.response || "Sorry, I could not generate a response.";
+            } else {
+                // ── Account (DB) mode — handled by customerService via /secureQuery
+                // This branch is for non-sensitive queries in account mode
+                const { category: cat } = await processCategory(query);
+                category = cat || "general";
+                const result = await processQuery(query);
+                response = result.response || "Please use a secure query with your account number for account details.";
+            }
+
+            // 2. Safe Cache Save
+            try {
+                if (redisClient.isReady) {
+                    const cacheData = JSON.stringify({ response, category, ragSources });
+                    await redisClient.setEx(cacheKey, parseInt(CACHE_TTL, 10), cacheData);
+                }
+            } catch (cacheErr) {
+                logError("Redis SET failed", cacheErr.message);
+            }
+        }
+
+        // Save to history asynchronously (do not await to speed up response)
         const entry = new QueryHistory({ userId, query, category, response });
-        const saved = await entry.save();
+        entry.save().catch(err => logError("History save failed", err.message));
 
         return res.json({
             category,
             response,
             mode,
-            historyId: saved._id,
+            historyId: entry._id,
             ...(ragSources.length > 0 && { sources: ragSources }),
         });
 
@@ -119,7 +154,40 @@ const handleTranslate = async (req, res) => {
 
         if (!response) return res.status(400).json({ error: "Response is required" });
 
-        const { translation } = await translateResponse(response);
+        // 1. Generate cache key based on the response text
+        const cacheKey = `ai_translation:${response.trim().toLowerCase()}`;
+        let translation = null;
+
+        // 2. Safe Cache Fetch
+        try {
+            if (redisClient.isReady) {
+                translation = await redisClient.get(cacheKey);
+            }
+        } catch (cacheErr) {
+            logError("Redis GET failed for translation", cacheErr.message);
+        }
+
+        if (translation) {
+            log(`[queryController] Translation Cache HIT for key='${cacheKey}'`);
+        } else {
+            log(`[queryController] Translation Cache MISS for key='${cacheKey}'`);
+            
+            const result = await translateResponse(response);
+            translation = result.translation;
+
+            if (!translation || translation === "Sorry, I couldn't translate the response.") {
+                return res.status(500).json({ error: "Translation failed" });
+            }
+
+            // 3. Safe Cache Save (TTL set to 1 hour / 3600 seconds)
+            try {
+                if (redisClient.isReady) {
+                    await redisClient.setEx(cacheKey, 3600, translation);
+                }
+            } catch (cacheErr) {
+                logError("Redis SET failed for translation", cacheErr.message);
+            }
+        }
 
         if (historyId) {
             await QueryHistory.findOneAndUpdate(
@@ -162,7 +230,8 @@ const handleTelugu = async (req, res) => {
         res.setHeader("Content-Type", "audio/mpeg");
         pyRes.data.pipe(res);
     } catch (err) {
-        error("TTS failed", err.message);
+        // Updated to use the correctly destructured logError
+        logError("TTS failed", err.message);
         res.status(500).send("Error generating speech");
     }
 };

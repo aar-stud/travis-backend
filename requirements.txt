@@ -6,3 +6,4 @@ express-validator
 jsonwebtoken
 mongoose
 concurrently
+redis
